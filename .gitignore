@@ -1,0 +1,27 @@
+# Secrets
+auth.json
+
+# Dependencies (reinstall with npm install per extension)
+node_modules/
+
+# Sessions (ephemeral)
+sessions/
+
+# Logs
+logs/
+
+# Bundled tool binaries
+bin/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor noise
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.log
+npm-debug.log*

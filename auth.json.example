@@ -1,0 +1,4 @@
+{
+  "NOTE": "This file is gitignored. Contains API keys.",
+  "Example": "Copy this to auth.json and add your actual keys."
+}

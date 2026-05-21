@@ -1,0 +1,21 @@
+{
+  "name": "pi-permissions",
+  "version": "1.0.0",
+  "description": "Claude-style permission modes for pi: default, acceptEdits, plan, auto, dontAsk, bypass. Toggle with /mode or Shift+Tab.",
+  "keywords": [
+    "pi-extension",
+    "pi-coding-agent",
+    "permissions",
+    "safety"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.75.4",
+    "@earendil-works/pi-tui": "^0.75.4",
+    "typescript": "^6.0.3"
+  }
+}

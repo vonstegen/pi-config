@@ -1,0 +1,487 @@
+/**
+ * Pi Extension: Chat-Tree Integration
+ * 
+ * Bridges PI's session tree with Obsidian's Chat-Tree vault structure.
+ * Each PI session maps to a Trunk, with branching handled via wikilinks.
+ * 
+ * Structure:
+ *   Chat-Trees/
+ *   ├── <trunk>/
+ *   │   ├── trunk.md
+ *   │   ├── <branch>/
+ *   │   │   ├── Turn-001.md
+ *   │   │   └── Turn-001-fruits/
+ *   │   │   │   └── *.md, *.ts, *.png, etc.
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+// ==================== Configuration ====================
+
+interface ChatTreeConfig {
+  vaultPath: string;
+  chatTreeRoot: string;
+  autoSave: boolean;
+  defaultModel: string;
+}
+
+const DEFAULT_CONFIG: ChatTreeConfig = {
+  vaultPath: "/mnt/c/Users/andre/Documents/VonStegen-Master-Vault",
+  chatTreeRoot: "AI/Chat-Trees",
+  autoSave: true,
+  defaultModel: "claude"
+};
+
+// ==================== State ====================
+
+let config: ChatTreeConfig = { ...DEFAULT_CONFIG };
+let currentTrunk: string = "";
+let currentBranch: string = "main";
+let pendingExchange: {
+  prompt: string;
+  response: string;
+  model: string;
+  tokens: number;
+  timestamp: string;
+} | null = null;
+let sessionId: string = "";
+
+// ==================== Path Helpers ====================
+
+function getChatTreesPath(): string {
+  return path.join(config.vaultPath, config.chatTreeRoot);
+}
+
+function getTrunkPath(trunkName: string): string {
+  return path.join(getChatTreesPath(), trunkName);
+}
+
+function getBranchPath(trunkName: string, branchName: string): string {
+  return path.join(getTrunkPath(trunkName), branchName);
+}
+
+function getTurnPath(trunkName: string, branchName: string, turnNumber: number): string {
+  return path.join(getBranchPath(trunkName, branchName), `Turn-${String(turnNumber).padStart(3, '0')}.md`);
+}
+
+function getFruitsPath(trunkName: string, branchName: string, turnNumber: number): string {
+  return path.join(getBranchPath(trunkName, branchName), `Turn-${String(turnNumber).padStart(3, '0')}-fruits`);
+}
+
+// ==================== Turn Node Schema ====================
+
+interface TurnFrontmatter {
+  type: 'turn';
+  id: string;
+  timestamp: string;
+  branch: string;
+  parent_turn: string | null;
+  model: string;
+  success_score: number | null;
+  tags: string[];
+  fruits: string[];
+}
+
+function generateTurnId(turnNumber: number): string {
+  return `Turn-${String(turnNumber).padStart(3, '0')}`;
+}
+
+function formatTurnMarkdown(
+  turnId: string,
+  branchName: string,
+  parentTurn: string | null,
+  model: string,
+  prompt: string,
+  response: string,
+  fruits: string[] = []
+): string {
+  const timestamp = new Date().toISOString();
+  
+  let md = '---\n';
+  md += `type: turn\n`;
+  md += `id: ${turnId}\n`;
+  md += `timestamp: ${timestamp}\n`;
+  md += `branch: ${branchName}\n`;
+  md += `parent_turn: ${parentTurn || ''}\n`;
+  md += `model: ${model}\n`;
+  md += `success_score: \n`;
+  md += `tags: []\n`;
+  md += `fruits: [${fruits.map(f => `"${f}"`).join(', ')}]\n`;
+  md += '---\n\n';
+
+  md += `# ${turnId}\n\n`;
+  md += `## Prompt\n\n${prompt}\n\n`;
+  md += `## Response\n\n${response}\n\n`;
+
+  if (fruits.length > 0) {
+    md += `## Fruits\n\n`;
+    for (const fruit of fruits) {
+      md += `- [[${fruit}]]\n`;
+    }
+  }
+
+  return md;
+}
+
+function formatTrunkMarkdown(trunkName: string): string {
+  return `---\ntype: trunk\nid: ${trunkName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}\ntimestamp: ${new Date().toISOString()}\nmodel: ${config.defaultModel}\n---\n\n# ${trunkName}\n\nCreated by PI Chat-Tree extension\n`;
+}
+
+function formatBranchIndex(branchName: string, trunkName: string): string {
+  return `---\ntype: branch\nid: ${branchName}\ntrunk: ${trunkName}\ntimestamp: ${new Date().toISOString()}\n---\n\n# Branch: ${branchName}\n`;
+}
+
+// ==================== File System Operations ====================
+
+function ensureDir(dirPath: string): void {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function listTurns(trunkName: string, branchName: string): string[] {
+  const branchPath = getBranchPath(trunkName, branchName);
+  try {
+    const files = fs.readdirSync(branchPath);
+    return files
+      .filter(f => /^Turn-\d{3}\.md$/.test(f))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function getTurnContent(trunkName: string, branchName: string, turnNumber: number): string | null {
+  const turnPath = getTurnPath(trunkName, branchName, turnNumber);
+  try {
+    return fs.readFileSync(turnPath, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+function getNextTurnNumber(trunkName: string, branchName: string): number {
+  const turns = listTurns(trunkName, branchName);
+  if (turns.length === 0) return 1;
+  const lastTurn = turns[turns.length - 1];
+  const match = lastTurn.match(/Turn-(\d{3})\.md/);
+  return match ? parseInt(match[1], 10) + 1 : 1;
+}
+
+function listBranches(trunkName: string): string[] {
+  const trunkPath = getTrunkPath(trunkName);
+  try {
+    return fs.readdirSync(trunkPath)
+      .filter(f => {
+        const fPath = path.join(trunkPath, f);
+        return fs.statSync(fPath).isDirectory() && f !== 'assets' && f !== 'images';
+      })
+      .sort();
+  } catch {
+    return ['main'];
+  }
+}
+
+function listTrunks(): string[] {
+  const chatTreesPath = getChatTreesPath();
+  try {
+    return fs.readdirSync(chatTreesPath)
+      .filter(f => {
+        const fPath = path.join(chatTreesPath, f);
+        return fs.statSync(fPath).isDirectory();
+      })
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+// ==================== Save Operations ====================
+
+function saveTurn(
+  trunkName: string,
+  branchName: string,
+  prompt: string,
+  response: string,
+  model: string,
+  parentTurn: string | null = null,
+  fruits: string[] = []
+): { turnPath: string; turnNumber: number } | null {
+  try {
+    ensureDir(getChatTreesPath());
+    ensureDir(getTrunkPath(trunkName));
+    ensureDir(getBranchPath(trunkName, branchName));
+
+    // Create trunk.md if needed
+    const trunkPath = path.join(getTrunkPath(trunkName), 'trunk.md');
+    if (!fs.existsSync(trunkPath)) {
+      fs.writeFileSync(trunkPath, formatTrunkMarkdown(trunkName), 'utf-8');
+    }
+
+    // Create branch index if needed
+    const branchIndexPath = path.join(getBranchPath(trunkName, branchName), 'branch-index.md');
+    if (!fs.existsSync(branchIndexPath)) {
+      fs.writeFileSync(branchIndexPath, formatBranchIndex(branchName, trunkName), 'utf-8');
+    }
+
+    const turnNumber = getNextTurnNumber(trunkName, branchName);
+    const turnId = generateTurnId(turnNumber);
+
+    const markdown = formatTurnMarkdown(turnId, branchName, parentTurn, model, prompt, response, fruits);
+    const turnPath = getTurnPath(trunkName, branchName, turnNumber);
+    fs.writeFileSync(turnPath, markdown, 'utf-8');
+
+    // Create fruits directory
+    const fruitsPath = getFruitsPath(trunkName, branchName, turnNumber);
+    ensureDir(fruitsPath);
+
+    return { turnPath, turnNumber };
+  } catch (e) {
+    console.error("[Chat-Tree] Error saving turn:", e);
+    return null;
+  }
+}
+
+function saveFruit(
+  trunkName: string,
+  branchName: string,
+  turnNumber: number,
+  filename: string,
+  content: string
+): string | null {
+  try {
+    const fruitsPath = getFruitsPath(trunkName, branchName, turnNumber);
+    ensureDir(fruitsPath);
+
+    const fruitPath = path.join(fruitsPath, filename);
+    fs.writeFileSync(fruitPath, content, 'utf-8');
+
+    return fruitPath;
+  } catch (e) {
+    console.error("[Chat-Tree] Error saving fruit:", e);
+    return null;
+  }
+}
+
+// ==================== Tree Visualization ====================
+
+function renderTree(trunkName: string, maxDepth: number = 3): string {
+  const branches = listBranches(trunkName);
+  let output = `## Tree: [[${trunkName}]]\n\n`;
+
+  for (const branch of branches) {
+    const turns = listTurns(trunkName, branch);
+    const marker = branch === currentBranch ? " ← current" : "";
+    output += `### [[${branch}]]${marker}\n`;
+
+    for (let i = 0; i < Math.min(turns.length, 10); i++) {
+      const turnMatch = turns[i].match(/Turn-(\d{3})/);
+      if (turnMatch) {
+        const turnNum = parseInt(turnMatch[1], 10);
+        const content = getTurnContent(trunkName, branch, turnNum);
+        const preview = content 
+          ? content.substring(0, 100).replace(/\n/g, ' ').substring(0, 60) + "..."
+          : "";
+        output += `- ${turns[i]} — ${preview}\n`;
+      }
+    }
+
+    if (turns.length > 10) {
+      output += `- ... and ${turns.length - 10} more turns\n`;
+    }
+    output += "\n";
+  }
+
+  return output;
+}
+
+// ==================== Export ====================
+
+export default function chatTreeExtension(pi: any) {
+  
+  console.log("[Chat-Tree] Extension loading...");
+
+  // Initialize session ID
+  sessionId = `pi-${new Date().toISOString().split('T')[0]}-${Date.now().toString(36)}`;
+
+  // ==================== Configuration Commands ====================
+
+  pi.registerCommand("ct config", {
+    description: "Configure Chat-Tree settings",
+    handler: (args: string) => {
+      const parts = args.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        const [key, ...valueParts] = parts;
+        const value = valueParts.join(' ');
+
+        if (key === 'vault') {
+          config.vaultPath = value;
+          return { content: [{ type: "text", text: `Vault path set to: ${value}` }] };
+        }
+        if (key === 'autosave') {
+          config.autoSave = value === 'on';
+          return { content: [{ type: "text", text: `Auto-save ${config.autoSave ? 'enabled' : 'disabled'}` }] };
+        }
+        if (key === 'model') {
+          config.defaultModel = value;
+          return { content: [{ type: "text", text: `Default model set to: ${value}` }] };
+        }
+      }
+
+      return { content: [{ type: "text", text: `## Chat-Tree Config\n\n- vault: ${config.vaultPath}\n- autosave: ${config.autoSave ? 'on' : 'off'}\n- model: ${config.defaultModel}\n\nUsage: /ct config vault /path/to/vault` }] };
+    }
+  });
+
+  // ==================== Status Commands ====================
+
+  pi.registerCommand("ct", {
+    description: "Chat Tree status and overview",
+    handler: (args: string) => {
+      const trunks = listTrunks();
+      let totalTurns = 0;
+      let totalBranches = 0;
+
+      for (const trunk of trunks) {
+        const branches = listBranches(trunk);
+        totalBranches += branches.length;
+        for (const branch of branches) {
+          totalTurns += listTurns(trunk, branch).length;
+        }
+      }
+
+      const status = `## Chat Tree Status
+
+**Session**: ${sessionId}
+**Current Trunk**: ${currentTrunk || '(none)'}
+**Current Branch**: ${currentBranch}
+**Trunks**: ${trunks.length}
+**Branches**: ${totalBranches}
+**Total Turns**: ${totalTurns}
+
+### Commands:
+\`\`\`
+/ct                    - This status
+/ct config            - Show/set configuration
+/ct trunks            - List all trunks
+/ct branches [trunk]   - List branches in trunk
+/ct turns [branch]    - List turns in branch
+/ct save              - Save pending exchange
+/ct new <name>        - Create new trunk
+/ct branch <name>     - Create new branch
+/ct fork <turn>       - Fork at turn (creates new branch)
+/ct tree [trunk]      - Show tree structure
+/ct use <trunk> [branch] - Set current trunk/branch
+/node <id>            - Load node into context
+/fruit <turn> <name> <content> - Save a fruit
+\`\`\`
+
+### Vault: ${config.vaultPath}
+### Auto-save: ${config.autoSave ? 'enabled' : 'disabled'}`;
+
+      return { content: [{ type: "text", text: status }] };
+    }
+  });
+
+  // Alias
+  pi.registerCommand("chat-tree", {
+    description: "Alias for /ct",
+    handler: (args: string, ctx: any) => {
+      return pi.commands.get("ct")?.handler(args, ctx);
+    }
+  });
+
+  // ==================== Listing Commands ====================
+
+  pi.registerCommand("ct trunks", {
+    description: "List all trunks",
+    handler: (args: string) => {
+      const trunks = listTrunks();
+      if (trunks.length === 0) {
+        return { content: [{ type: "text", text: "No trunks found. Use /ct new <name> to create one." }] };
+      }
+
+      let output = "## Chat Tree Trunks\n\n";
+      for (const trunk of trunks) {
+        const branches = listBranches(trunk);
+        let turnCount = 0;
+        for (const branch of branches) {
+          turnCount += listTurns(trunk, branch).length;
+        }
+        output += `- **[[${trunk}]]** (${branches.length} branches, ${turnCount} turns)\n`;
+      }
+
+      return { content: [{ type: "text", text: output }] };
+    }
+  });
+
+  pi.registerCommand("ct branches", {
+    description: "List branches in a trunk",
+    handler: (args: string) => {
+      const trunk = args.trim() || currentTrunk;
+      if (!trunk) {
+        return { content: [{ type: "text", text: "No current trunk. Use /ct trunks to select one." }] };
+      }
+
+      const branches = listBranches(trunk);
+      let output = `## Branches in [[${trunk}]]\n\n`;
+      for (const branch of branches) {
+        const turns = listTurns(trunk, branch);
+        const marker = branch === currentBranch ? " ← current" : "";
+        output += `- **[[${branch}]]** (${turns.length} turns)${marker}\n`;
+      }
+
+      return { content: [{ type: "text", text: output }] };
+    }
+  });
+
+  pi.registerCommand("ct turns", {
+    description: "List turns in a branch",
+    handler: (args: string) => {
+      const parts = args.trim().split(/\s+/);
+      const branch = parts[0] || currentBranch;
+      const trunk = parts[1] || currentTrunk;
+
+      if (!trunk || !branch) {
+        return { content: [{ type: "text", text: "No current context. Use /ct branches <trunk> first." }] };
+      }
+
+      const turns = listTurns(trunk, branch);
+      if (turns.length === 0) {
+        return { content: [{ type: "text", text: `No turns in [[${branch}]]. Start a conversation to create turns.` }] };
+      }
+
+      let output = `## Turns in [[${trunk}/${branch}]]\n\n`;
+      for (const turn of turns) {
+        output += `- [[${turn.replace('.md', '')}]]\n`;
+      }
+
+      return { content: [{ type: "text", text: output }] };
+    }
+  });
+
+  // ==================== Tree Commands ====================
+
+  pi.registerCommand("ct tree", {
+    description: "Show tree structure",
+    handler: (args: string) => {
+      const trunk = args.trim() || currentTrunk;
+      if (!trunk) {
+        return { content: [{ type: "text", text: "No current trunk. Use /ct trunks to select one." }] };
+      }
+
+      return { content: [{ type: "text", text: renderTree(trunk) }] };
+    }
+  });
+
+  // ==================== Context Commands ====================
+
+  pi.registerCommand("ct use", {
+    description: "Set current trunk/branch",
+    handler: (args: string) => {
+      const parts = args.trim().split(/\s+/);
+      const trunk = parts[0];
+      const branch = parts[1] || 'main';
+
+      if (!trunk) {
+        return { content: [{ type: "text", text: "Usage: /ct use <trunk> [
