@@ -25,8 +25,24 @@ pi-config/
 ## Setup
 
 ```bash
-git clone <repo> ~/pi-config
-ln -s ~/pi-config ~/.pi/agent  # or copy files
+# Clone the repo
+git clone https://github.com/vonstegen/pi-config.git ~/pi-config
+cd ~/pi-config
+
+# Install (creates symlinks to ~/.pi/agent)
+./setup.sh --symlink
+
+# For pi-permissions, install its dependencies:
+cd ~/.pi/agent/extensions/pi-permissions && npm install
+
+# Restart pi to load new config
+pi
+```
+
+**Alternatively on new machines:**
+```bash
+# If you already use ~/.pi/agent, backup and replace with the repo:
+./setup.sh --copy
 ```
 
 ## Extensions
@@ -73,3 +89,7 @@ Maps pi sessions to Obsidian vault Chat-Trees.
 - `node_modules/` is gitignored (reinstall with `npm install` per extension)
 - Sessions are gitignored (stored in `~/.pi/agent/sessions/`)
 - `bin/` (fd, rg binaries) is gitignored
+
+## Repository
+
+https://github.com/vonstegen/pi-config
