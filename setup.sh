@@ -151,11 +151,11 @@ for item in "${TRACKED_ITEMS[@]}"; do
 done
 echo ""
 echo "IMPORTANT: Review auth.json and add your API keys!"
-echo "  - Template: ~/pi-config/auth.json.example"
+echo "  - Template: ~/Developer/pi-config/auth.json.example"
 echo "  - Actual: ~/.pi/agent/auth.json (not in repo, kept as-is)"
 echo ""
 echo "Restart pi to load new configuration:"
 echo "  pi"
 echo ""
 echo "Repository: https://github.com/vonstegen/pi-config"
-echo "To update:  cd ~/pi-config && git pull"
+echo "To update:  cd ~/Developer/pi-config && git pull"

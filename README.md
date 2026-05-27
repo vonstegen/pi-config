@@ -26,8 +26,8 @@ pi-config/
 
 ```bash
 # Clone the repo
-git clone https://github.com/vonstegen/pi-config.git ~/pi-config
-cd ~/pi-config
+git clone https://github.com/vonstegen/pi-config.git ~/Developer/pi-config
+cd ~/Developer/pi-config
 
 # Install (creates symlinks to ~/.pi/agent)
 ./setup.sh --symlink

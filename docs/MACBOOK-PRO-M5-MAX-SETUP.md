@@ -29,8 +29,8 @@ brew install htop git-lfs curl wget
 # Typically: npm install -g @earendil-works/pi-coding-agent
 
 # Clone pi-config repo
-git clone https://github.com/vonstegen/pi-config.git ~/pi-config
-cd ~/pi-config
+git clone https://github.com/vonstegen/pi-config.git ~/Developer/pi-config
+cd ~/Developer/pi-config
 
 # Deploy with symlinks (keeps sessions/auth/logs intact)
 ./setup.sh --symlink
@@ -117,7 +117,7 @@ ollama list
 
 ```bash
 # Create auth.json from template
-cp ~/pi-config/auth.json.example ~/.pi/agent/auth.json
+cp ~/Developer/pi-config/auth.json.example ~/.pi/agent/auth.json
 
 # Edit with your API key
 nano ~/.pi/agent/auth.json
