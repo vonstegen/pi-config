@@ -25,7 +25,7 @@ import { Type } from "typebox";
 import { execSync } from "node:child_process";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 
-const VIBELLM_ROOT = `${Deno.env.get("HOME")}/vibellm`;
+const VIBELLM_ROOT = `${process.env.HOME}/vibellm`;
 const ECHELON_URL = "http://localhost:5000";
 const PYTHON = "python3";
 
