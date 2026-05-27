@@ -25,10 +25,12 @@ brew install htop git-lfs curl wget
 ## 2. Install pi Coding Agent
 
 ```bash
-# Install pi (adjust per official docs)
-# Typically: npm install -g @earendil-works/pi-coding-agent
+# Install pi via npm
+npm install -g @earendil-works/pi-coding-agent
 
-# Clone pi-config repo
+# Verify installation
+pi --version
+```
 git clone https://github.com/vonstegen/pi-config.git ~/Developer/pi-config
 cd ~/Developer/pi-config
 
@@ -139,17 +141,20 @@ Template:
 
 ## 7. Update VibeLLM Extension for Apple Silicon
 
-The existing `vibellm.ts` assumes CUDA. For M5 Max, update the check command:
+The `vibellm.ts` extension is already portable (uses `$HOME` instead of hardcoded paths). 
 
+**No manual editing needed** — the extension will automatically detect MPS on Apple Silicon.
+
+To verify it's working after setup:
 ```bash
-# Edit vibellm.ts to detect MPS instead of CUDA
-nano ~/.pi/agent/extensions/vibellm.ts
+cd ~/Developer/pi-config
+cat extensions/vibellm.ts | grep VIBELLM_ROOT
+# Should show: const VIBELLM_ROOT = `${Deno.env.get("HOME")}/vibellm`;
 ```
 
-Update the `vibellm_status` check to use MPS:
-```python
-# In check.py or CLI, replace CUDA check with MPS check:
-python3 -c "import torch; print('MPS Available:', torch.backends.mps.is_available()); print('VRAM:', torch.cuda.get_device_properties(0).total_memory / 1e9 if torch.cuda.is_available() else 'N/A (using MPS)')"
+The VibeLLM Python CLI (step 4) handles MPS detection internally when you run:
+```bash
+cd ~/vibellm && python3 -m training.cli check
 ```
 
 ---
@@ -168,24 +173,30 @@ claude --version
 
 ---
 
-## 9. Validate Setup
+---
+
+## 9. Validate Everything Works
 
 ```bash
-# Restart pi
+# 1. Verify pi is installed
+pi --version
+
+# 2. Start pi (this loads extensions including vibellm, agentmemory, etc.)
 pi
 
-# Verify extensions loaded
-# Check: vibellm_status, agentmemory, chat-tree, pi-permissions
+# 3. Inside pi, test these tools:
+#    - vibellm_status      (should show MPS available)
+#    - memory_health       (should return healthy)
 
-# Test Ollama
-curl http://localhost:11434/api/generate -d '{"model": "qwen3:8b", "prompt": "Hi"}'
+# 4. Test Ollama is running
+ollama list
+curl http://localhost:11434/api/generate -d '{"model": "qwen3:8b", "prompt": "Hi", "stream": false}'
 
-# Test VibeLLM
-python3 -m training.cli check
-
-# Test agentmemory
-pi -e "memory_health"
+# 5. Test VibeLLM
+cd ~/vibellm && python3 -m training.cli check
 ```
+
+**If all tests pass → you're ready to use pi!** 🚀
 
 ---
 
@@ -235,7 +246,7 @@ ollama list
 cd ~/vibellm && python3 -m training.cli check
 
 # Update pi-config
-cd ~/pi-config && git pull && ./setup.sh --symlink
+cd ~/Developer/pi-config && git pull && ./setup.sh --symlink
 ```
 
 ---
