@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.75.4",
-  "defaultProvider": "openrouter",
-  "defaultModel": "minimax/minimax-m2.7",
+  "lastChangelogVersion": "0.76.0",
+  "defaultProvider": "ollama",
+  "defaultModel": "qwen3:14b",
   "defaultThinkingLevel": "high",
   "theme": "light",
   "enabledModels": [

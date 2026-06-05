@@ -1,0 +1,12 @@
+numpy
+sentencepiece
+transformers
+peft
+bitsandbytes
+datasets
+accelerate
+trl
+xformers
+unsloth
+qwen-tokenizer
+jinja2
